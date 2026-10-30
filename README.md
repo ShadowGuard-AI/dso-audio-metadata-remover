@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # dso-audio-metadata-remover
 Command-line tool to remove metadata from audio files (MP3, WAV, FLAC, etc.) to protect privacy. Utilizes libraries like mutagen to access and remove ID3 tags and other metadata fields. - Focused on Tools for sanitizing and obfuscating sensitive data within text files and structured data formats
 
