@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import shutil
 import sys
 from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
@@ -41,7 +42,7 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
                 audio = MP3(input_file, ID3=EasyID3)  #Handles ID3 v1, v1.1, and v2 tags
             except ID3NoHeaderError:
                  logging.warning(f"No ID3 header found in {input_file}.  Skipping metadata removal.")
-                 return
+                 return "no_metadata"
             file_type = "mp3"
         elif input_file.lower().endswith(".flac"):
             audio = FLAC(input_file)
@@ -55,6 +56,24 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
         # Handle output file
         if output_file is None:
             output_file = input_file
+
+        # For a separate output, copy the audio data there first and
+        # strip the copy, so the output is a complete audio file and
+        # the input is left untouched.
+        if os.path.abspath(output_file) != os.path.abspath(input_file):
+            if file_type == "wav":
+                # Check for ID3 tags before copying, so a no tag run
+                # does not leave an unstripped copy behind.
+                try:
+                    ID3(input_file)
+                except ID3NoHeaderError:
+                    logging.warning(f"No ID3 tags found in {input_file}.")
+                    return "no_metadata"
+            shutil.copyfile(input_file, output_file)
+            if file_type == "mp3":
+                audio = MP3(output_file, ID3=EasyID3)
+            elif file_type == "flac":
+                audio = FLAC(output_file)
 
         # Metadata removal logic
         if file_type == "mp3":
@@ -92,13 +111,20 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
             # WAV files might not always have metadata stored in a standard way.
             #  We can try to remove ID3 tags if they exist.  This might not be comprehensive.
              try:
-                  audio_id3 = ID3(input_file)
-                  audio_id3.delete()
-                  logging.info(f"ID3 tags removed from {input_file}")
+                  audio_id3 = ID3(output_file)
+                  if keep_tags:
+                      for tag in list(audio_id3.keys()):
+                          if tag not in keep_tags:
+                              del audio_id3[tag]
+                      audio_id3.save(output_file)
+                  else:
+                      audio_id3.delete()
+                  logging.info(f"ID3 tags removed from {output_file}")
              except ID3NoHeaderError:
                   logging.info(f"No ID3 tags found in {input_file}.")
+                  return "no_metadata"
              except Exception as e:
-                  logging.error(f"Error while removing ID3 tags from {input_file}: {e}")
+                  logging.error(f"Error while removing ID3 tags from {output_file}: {e}")
                   raise
             # mutagen WAVE doesn't directly expose a key-value store for metadata like MP3/FLAC, so
             # targeted removal is harder without more format-specific parsing.
@@ -112,8 +138,8 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
                logging.error(f"Error saving file {output_file}: {e}")
                raise
         else:
-            #Because we delete the ID3 tag in place (for WAV), we don't need to "save" in the same way.
-            logging.info(f"ID3 metadata removed from {input_file}.")
+            logging.info(f"ID3 metadata removed from {output_file}.")
+        return "removed"
 
     except FileNotFoundError:
         logging.error(f"File not found: {input_file}")
@@ -142,9 +168,14 @@ def main():
 
     try:
         if args.keep:
-            remove_metadata(args.input_file, args.output_file, args.keep)
+            result = remove_metadata(args.input_file, args.output_file, args.keep)
         else:
-            remove_metadata(args.input_file, args.output_file)
+            result = remove_metadata(args.input_file, args.output_file)
+        if result == "no_metadata":
+            print(f"No metadata found in {args.input_file}.")
+            if args.output_file:
+                sys.exit(1)
+            return
         print("Metadata removal complete.")
 
     except Exception as e:
