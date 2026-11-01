@@ -36,7 +36,10 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
     """
 
     try:
-        # Determine file type and load metadata
+        # The format is chosen from the file name alone; the bytes are
+        # never checked. A FLAC file renamed to .mp3 is handed to the MP3
+        # loader and fails there, and the error says nothing about the
+        # name being the reason.
         if input_file.lower().endswith(".mp3"):
             try:
                 audio = MP3(input_file, ID3=EasyID3)  #Handles ID3 v1, v1.1, and v2 tags
@@ -75,7 +78,12 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
             elif file_type == "flac":
                 audio = FLAC(output_file)
 
-        # Metadata removal logic
+        # The keep list is matched exactly against the keys as this loader
+        # presents them: EasyID3 names for MP3, the stored key case for
+        # FLAC. A keep entry typed as Title when the key is title keeps
+        # nothing, and for MP3 any tag EasyID3 does not expose is not in
+        # the key list at all, so it is neither removed nor kept on purpose;
+        # it simply is not seen by this pass.
         if file_type == "mp3":
             if keep_tags:
                 tags_to_remove = [tag for tag in audio.keys() if tag not in keep_tags]
@@ -108,8 +116,12 @@ def remove_metadata(input_file, output_file=None, keep_tags=None):
 
 
         elif file_type == "wav":
-            # WAV files might not always have metadata stored in a standard way.
-            #  We can try to remove ID3 tags if they exist.  This might not be comprehensive.
+            # Only an ID3 chunk is handled for WAV. The RIFF INFO list,
+            # where most WAV metadata actually lives, is never parsed or
+            # touched, so a WAV can come out of a successful run still
+            # carrying its INFO artist, title, and copyright strings. That
+            # gap is the largest one in this tool and I leave it stated
+            # here rather than implied away by the success message.
              try:
                   audio_id3 = ID3(output_file)
                   if keep_tags:
@@ -172,6 +184,12 @@ def main():
         else:
             result = remove_metadata(args.input_file, args.output_file)
         if result == "no_metadata":
+            # Same outcome, two exit codes: asked to write a separate
+            # output, a no metadata run fails, because no stripped copy
+            # was produced; run in place, it returns success. The
+            # difference is deliberate, and worth seeing here, because a
+            # script checking the exit code gets opposite answers for the
+            # same file depending on one flag.
             print(f"No metadata found in {args.input_file}.")
             if args.output_file:
                 sys.exit(1)
